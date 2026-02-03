@@ -30,7 +30,6 @@ APP_URL = "https://soumu-task-management-efzwxzn7qf9hqznyev64vu.streamlit.app/"
 
 def send_chat_notification(text):
     if "http" in CHAT_WEBHOOK_URL:
-        # URLをメッセージに追加
         full_text = f"{text}\n\n🔗 確認はコチラ：\n{APP_URL}"
         try:
             requests.post(CHAT_WEBHOOK_URL, json={"text": full_text})
@@ -70,7 +69,7 @@ with tab_input:
         c1, c2 = st.columns(2)
         with c1:
             i_job = st.selectbox("業務種別", job_options)
-            i_status = st.selectbox("ステータス", status_options) # 追加
+            i_status = st.selectbox("ステータス", status_options)
             i_title = st.text_input("案件名（必須）")
             i_loc = st.text_input("場所")
         with c2:
@@ -124,7 +123,20 @@ with tab_search:
             row_idx = df_filtered.loc[target_idx, "row_no"]
             curr = df_filtered.loc[target_idx]
 
+            # --- 編集・削除エリア ---
             st.divider()
+            
+            # 削除ボタン用のレイアウト
+            del_c1, del_c2 = st.columns([6, 1])
+            with del_c2:
+                # 誤削除防止のための2段階確認
+                confirm_delete = st.checkbox("この案件を削除する")
+                if st.button("🚨 完全に削除", disabled=not confirm_delete):
+                    ws_main.delete_rows(int(row_idx))
+                    send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}\n担当: {curr['担当者']}")
+                    st.warning(f"案件「{curr['案件名']}」を削除しました。")
+                    st.rerun()
+
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
                 
@@ -142,7 +154,6 @@ with tab_search:
 
                 st.markdown("##### ⏰ 日時設定")
                 
-                # パース関数の改善（秒数などがあっても対応できるようにする）
                 def safe_parse_dt(val):
                     if not val or pd.isna(val): return None
                     for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
