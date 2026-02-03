@@ -111,29 +111,63 @@ with tab_search:
             with st.form("edit_form"):
                 st.subheader(f"📝 編集: {curr['案件名']}")
                 e1, e2 = st.columns(2)
+                
+                # --- 日時文字列をパースする補助関数 ---
+                def parse_dt(dt_str):
+                    try: return datetime.datetime.strptime(dt_str, "%Y/%m/%d %H:%M")
+                    except: return datetime.datetime.now(JST)
+
                 with e1:
                     e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
                     e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
                     e_title = st.text_input("案件名", value=curr["案件名"])
                     e_loc = st.text_input("場所", value=curr["場所"])
-                    e_start_dt = st.text_input("対応開始日時", value=curr["対応開始日時"])
+                    
+                    st.write("🕒 **対応開始日時**")
+                    start_dt = parse_dt(curr["対応開始日時"])
+                    c_sd1, c_sd2 = st.columns(2)
+                    e_sd = c_sd1.date_input("開始日", value=start_dt.date())
+                    e_st = c_sd2.time_input("開始時間", value=start_dt.time())
+
                 with e2:
                     e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
                     e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
                     e_req = st.text_input("依頼者", value=curr["依頼者"])
-                    e_occ_date = st.text_input("発生日", value=curr["発生日"])
-                    e_end_dt = st.text_input("完了日時", value=curr["完了日時"])
+                    
+                    st.write("📅 **発生日**")
+                    try: occ_date = datetime.datetime.strptime(curr["発生日"], "%Y/%m/%d").date()
+                    except: occ_date = datetime.date.today()
+                    e_occ_date = st.date_input("発生日選択", value=occ_date)
+
+                    st.write("🏁 **完了日時**")
+                    end_dt = parse_dt(curr["完了日時"]) if curr["完了日時"] else None
+                    c_ed1, c_ed2 = st.columns(2)
+                    e_ed = c_ed1.date_input("完了日", value=end_dt.date() if end_dt else datetime.date.today())
+                    e_et = c_ed2.time_input("完了時間", value=end_dt.time() if end_dt else datetime.time(0, 0))
                 
                 e_content = st.text_area("対応内容", value=curr["対応内容"], height=200)
                 e_memo = st.text_area("メモ", value=curr["メモ"], height=100)
                 set_now = st.checkbox("今すぐ完了にする（完了日時に現在時刻を入力）")
                 
                 if st.form_submit_button("💾 変更をすべて保存"):
-                    final_status = "完了" if set_now else e_status
-                    final_end = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M") if set_now else e_end_dt
+                    # 入力された日付と時間を合体させる
+                    final_start_str = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M")
                     
-                    # スプレッドシートの列順(A~L)に合わせてリストを作成
-                    updated = [e_occ_date, e_type, final_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, e_start_dt, final_end, e_memo]
+                    if set_now:
+                        final_status = "完了"
+                        final_end_str = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+                    else:
+                        final_status = e_status
+                        # 完了日時が未入力（デフォルトの状態）なら空文字、入力があればその値
+                        if curr["完了日時"] == "" and not set_now and e_ed == datetime.date.today() and e_et == datetime.time(0, 0):
+                            final_end_str = ""
+                        else:
+                            final_end_str = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M")
+                    
+                    final_occ_str = e_occ_date.strftime("%Y/%m/%d")
+                    
+                    # スプレッドシート A~L列
+                    updated = [final_occ_str, e_type, final_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, final_start_str, final_end_str, e_memo]
                     ws_main.update(range_name=f"A{row_idx}:L{row_idx}", values=[updated])
                     st.success("スプレッドシートを更新しました！")
                     st.rerun()
