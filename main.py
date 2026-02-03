@@ -107,56 +107,57 @@ with tab_search:
             curr = df_filtered.loc[target_idx]
 
             st.divider()
-            # フォーム開始
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
                 
-                # --- セクション1: 基本ステータス ---
-                st.markdown("##### ⚙️ 基本情報")
-                sec1_c1, sec1_c2, sec1_c3 = st.columns(3)
-                with sec1_c1:
-                    e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
-                with sec1_c2:
-                    e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
-                with sec1_c3:
-                    e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
-
+                # --- セクション1: 基本情報 ---
+                st.markdown("##### ⚙️ 基本・担当情報")
+                c1, c2, c3 = st.columns(3)
+                with c1: e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
+                with c2: e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
+                with c3: e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
+                
                 e_title = st.text_input("案件名", value=curr["案件名"])
                 
-                # --- セクション2: 詳細場所・依頼者 ---
+                # --- セクション2: 依頼詳細 ---
                 st.markdown("##### 📍 依頼詳細")
-                sec2_c1, sec2_c2, sec2_c3 = st.columns(3)
-                with sec2_c1: e_loc = st.text_input("場所", value=curr["場所"])
-                with sec2_c2: e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
-                with sec2_c3: e_req = st.text_input("依頼者", value=curr["依頼者"])
+                c4, c5, c6 = st.columns(3)
+                with c4: e_loc = st.text_input("場所", value=curr["場所"])
+                with c5: e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
+                with c6: e_req = st.text_input("依頼者", value=curr["依頼者"])
 
                 # --- セクション3: 日時設定 ---
-                st.markdown("##### ⏰ 日時設定")
+                st.markdown("##### ⏰ 日時設定（時刻を空にする場合はチェックを外す）")
+                
                 def parse_dt(dt_str):
                     try: return datetime.datetime.strptime(dt_str, "%Y/%m/%d %H:%M")
-                    except: return datetime.datetime.now(JST)
+                    except: return None
 
-                sec3_c1, sec3_c2, sec3_c3 = st.columns([1.5, 2, 2])
-                with sec3_c1:
-                    try: occ_d = datetime.datetime.strptime(curr["発生日"], "%Y/%m/%d").date()
-                    except: occ_d = datetime.date.today()
+                # 発生日
+                try: occ_d = datetime.datetime.strptime(curr["発生日"], "%Y/%m/%d").date()
+                except: occ_d = datetime.date.today()
+                
+                # レイアウトを整列させるためのカラム
+                col_occ, col_start, col_end = st.columns([1, 2, 2])
+                
+                with col_occ:
                     e_occ_date = st.date_input("発生日", value=occ_d)
-                
-                with sec3_c2:
-                    start_dt = parse_dt(curr["対応開始日時"])
-                    st.caption("対応開始日時")
-                    sc1, sc2 = st.columns(2)
-                    e_sd = sc1.date_input("開始日", value=start_dt.date(), label_visibility="collapsed")
-                    e_st = sc2.time_input("開始時間", value=start_dt.time(), label_visibility="collapsed")
-                
-                with sec3_c3:
-                    end_dt = parse_dt(curr["完了日時"]) if curr["完了日時"] else None
-                    st.caption("完了日時")
-                    ec1, ec2 = st.columns(2)
-                    e_ed = ec1.date_input("完了日", value=end_dt.date() if end_dt else datetime.date.today(), label_visibility="collapsed")
-                    e_et = ec2.time_input("完了時間", value=end_dt.time() if end_dt else datetime.time(0, 0), label_visibility="collapsed")
 
-                set_now = st.checkbox("今すぐ完了にする（完了日時に現在時刻を入力）")
+                with col_start:
+                    start_dt = parse_dt(curr["対応開始日時"])
+                    st.write("対応開始日時")
+                    cs1, cs2, cs3 = st.columns([1.5, 1.5, 1])
+                    use_start_time = cs3.checkbox("時刻", value=True if start_dt else False, key="u_st")
+                    e_sd = cs1.date_input("開始日", value=start_dt.date() if start_dt else datetime.date.today(), label_visibility="collapsed")
+                    e_st = cs2.time_input("開始時", value=start_dt.time() if start_dt else datetime.time(9, 0), label_visibility="collapsed", disabled=not use_start_time)
+                
+                with col_end:
+                    end_dt = parse_dt(curr["完了日時"])
+                    st.write("完了日時")
+                    ce1, ce2, ce3 = st.columns([1.5, 1.5, 1])
+                    use_end_time = ce3.checkbox("時刻", value=True if end_dt else False, key="u_et")
+                    e_ed = ce1.date_input("完了日", value=end_dt.date() if end_dt else datetime.date.today(), label_visibility="collapsed")
+                    e_et = ce2.time_input("完了時", value=end_dt.time() if end_dt else datetime.time(17, 0), label_visibility="collapsed", disabled=not use_end_time)
 
                 # --- セクション4: 内容とメモ ---
                 st.markdown("##### 📝 内容詳細")
@@ -164,20 +165,22 @@ with tab_search:
                 e_memo = st.text_area("メモ", value=curr["メモ"], height=100)
                 
                 if st.form_submit_button("💾 変更をすべて保存"):
-                    final_start_str = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M")
-                    if set_now:
-                        final_status, final_end_str = "完了", datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+                    # 開始日時の文字列化
+                    if use_start_time:
+                        final_start_str = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M")
                     else:
-                        final_status = e_status
-                        # 完了日時がデフォルトのまま（未入力相当）なら空文字
-                        if curr["完了日時"] == "" and e_ed == datetime.date.today() and e_et == datetime.time(0, 0):
-                            final_end_str = ""
-                        else:
-                            final_end_str = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M")
+                        final_start_str = e_sd.strftime("%Y/%m/%d")
+
+                    # 完了日時の文字列化
+                    if use_end_time:
+                        final_end_str = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M")
+                    else:
+                        # 完了日が本日で時刻チェックがない場合は空欄とみなす（運用に合わせる）
+                        final_end_str = "" if not end_dt and not use_end_time else e_ed.strftime("%Y/%m/%d")
                     
-                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, final_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, final_start_str, final_end_str, e_memo]
+                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, final_start_str, final_end_str, e_memo]
                     ws_main.update(range_name=f"A{row_idx}:L{row_idx}", values=[updated])
-                    st.success("更新しました！")
+                    st.success("スプレッドシートを更新しました！")
                     st.rerun()
         else:
             st.warning("編集したいタスクを上の表から選択してください。")
