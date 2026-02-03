@@ -24,15 +24,18 @@ def get_ss_connection():
 sh = get_ss_connection()
 ws_main = sh.get_worksheet(0)
 
-# --- Google Chat Webhook URL ---
+# --- 通知設定 ---
 CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAAAD-bZDK4/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=gK0I12cncnoO_AzBlSfLtoOrIH1v-mKINo1Iah0OTbw"
+APP_URL = "https://soumu-task-management-efzwxzn7qf9hqznyev64vu.streamlit.app/"
 
 def send_chat_notification(text):
     if "http" in CHAT_WEBHOOK_URL:
+        # URLをメッセージに追加
+        full_text = f"{text}\n\n🔗 確認はコチラ：\n{APP_URL}"
         try:
-            requests.post(CHAT_WEBHOOK_URL, json={"text": text})
-        except Exception as e:
-            st.error(f"通知送信エラー: {e}")
+            requests.post(CHAT_WEBHOOK_URL, json={"text": full_text})
+        except:
+            pass
 
 def get_staff_list():
     try:
@@ -66,48 +69,43 @@ with tab_input:
     with st.form("input_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
-            i_job = st.selectbox("業務種別", job_options, key="i_job")
+            i_job = st.selectbox("業務種別", job_options)
+            i_status = st.selectbox("ステータス", status_options) # 追加
             i_title = st.text_input("案件名（必須）")
             i_loc = st.text_input("場所")
-            sc1, sc2 = st.columns(2)
-            i_dept = sc1.text_input("依頼部署")
-            i_req = sc2.text_input("依頼者")
         with c2:
-            i_staff = st.selectbox("担当者", staff_list, key="i_staff")
+            i_staff = st.selectbox("担当者", staff_list)
+            i_dept = st.text_input("依頼部署")
+            i_req = st.text_input("依頼者")
             now_jst = datetime.datetime.now(JST)
-            i_date = st.date_input("対応開始日", value=now_jst.date())
-            i_time = st.time_input("対応開始時間", value=now_jst.time())
-        i_content = st.text_area("対応内容", height=200)
+            ic1, ic2 = st.columns(2)
+            i_date = ic1.date_input("開始日", value=now_jst.date())
+            i_time = ic2.time_input("開始時間", value=now_jst.time())
+        
+        i_content = st.text_area("対応内容", height=150)
         i_memo = st.text_area("メモ", height=100)
         
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                new_row = [now_jst.strftime("%Y/%m/%d"), i_job, "受付", i_title, i_content, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
+                new_row = [now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, i_content, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
                 ws_main.append_row(new_row)
-                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n担当: {i_staff}")
+                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n状態: {i_status}\n担当: {i_staff}")
                 st.success("登録完了！")
                 st.rerun()
 
 # --- 【タブ3】一覧・検索・編集 ---
 with tab_search:
     st.subheader("🔍 タスク一覧・検索")
-    
-    # --- 虫眼鏡ボタン付き検索欄 ---
     c_srch1, c_srch2 = st.columns([8, 1])
-    search_kw = c_srch1.text_input("検索ワードを入力", key="srch_val", label_visibility="collapsed")
+    search_kw = c_srch1.text_input("検索", label_visibility="collapsed")
     btn_search = c_srch2.button("🔍 検索")
 
     all_data_edit = ws_main.get_all_records()
     df_raw = pd.DataFrame(all_data_edit)
     
     if not df_raw.empty:
-        # 検索処理
-        if search_kw:
-            df_filtered = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains(search_kw).any(), axis=1)].copy()
-        else:
-            df_filtered = df_raw.copy()
-
+        df_filtered = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains(search_kw).any(), axis=1)].copy() if search_kw else df_raw.copy()
         df_filtered["row_no"] = df_filtered.index + 2
         df_filtered.insert(0, "選択", False)
 
@@ -143,42 +141,42 @@ with tab_search:
                 with c6: e_req = st.text_input("依頼者", value=curr["依頼者"])
 
                 st.markdown("##### ⏰ 日時設定")
-                def get_dt_obj(val):
-                    try: return datetime.datetime.strptime(str(val), "%Y/%m/%d %H:%M")
-                    except: 
-                        try: return datetime.datetime.strptime(str(val), "%Y/%m/%d")
-                        except: return None
-
-                # 発生日
-                try: occ_d = datetime.datetime.strptime(str(curr["発生日"]), "%Y/%m/%d").date()
-                except: occ_d = datetime.date.today()
-                e_occ_date = st.date_input("発生日", value=occ_d)
-
-                # --- レイアウトをピシッと整列させる工夫 ---
-                # 開始日時
-                st.write("**対応開始日時**")
-                start_dt = get_dt_obj(curr["対応開始日時"])
-                cs_1, cs_2, cs_3 = st.columns([1, 1, 1])
-                e_sd = cs_1.date_input("開始日", value=start_dt.date() if start_dt else datetime.date.today(), key="esd_v")
-                e_st = cs_2.time_input("開始時", value=start_dt.time() if (start_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), key="est_v")
-                s_mode = cs_3.radio("開始保存形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if start_dt else 2, key="sm_v", horizontal=True)
-
-                # 完了日時
-                st.write("**完了日時**")
-                end_dt = get_dt_obj(curr["完了日時"])
-                ce_1, ce_2, ce_3 = st.columns([1, 1, 1])
-                e_ed = ce_1.date_input("完了日", value=end_dt.date() if end_dt else datetime.date.today(), key="eed_v")
-                e_et = ce_2.time_input("完了時", value=end_dt.time() if (end_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), key="eet_v")
-                e_mode = ce_3.radio("完了保存形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if end_dt else 2, key="em_v", horizontal=True)
-
-                st.write("---")
-                e_content = st.text_area("対応内容", value=curr["対応内容"], height=150)
-                e_memo = st.text_area("メモ", value=curr["メモ"], height=100)
                 
-                do_notify = st.checkbox("更新をチャットに通知する")
+                # パース関数の改善（秒数などがあっても対応できるようにする）
+                def safe_parse_dt(val):
+                    if not val or pd.isna(val): return None
+                    for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
+                        try: return datetime.datetime.strptime(str(val), fmt)
+                        except: continue
+                    return None
 
-                if st.form_submit_button("💾 変更をすべて保存"):
-                    # 文字列化ロジック
+                col_occ, col_start, col_end = st.columns([1, 1, 1])
+                
+                with col_occ:
+                    occ_dt = safe_parse_dt(curr["発生日"])
+                    e_occ_date = st.date_input("発生日", value=occ_dt.date() if occ_dt else datetime.date.today())
+
+                with col_start:
+                    st.write("**対応開始日時**")
+                    s_dt = safe_parse_dt(curr["対応開始日時"])
+                    cs1, cs2 = st.columns(2)
+                    e_sd = cs1.date_input("開始日", value=s_dt.date() if s_dt else datetime.date.today(), key="edit_sd")
+                    e_st = cs2.time_input("開始時", value=s_dt.time() if (s_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), key="edit_st")
+                    s_mode = st.radio("開始保存", ["日付+時刻", "日付のみ", "空欄"], index=0 if s_dt else 2, horizontal=True, key="smode")
+
+                with col_end:
+                    st.write("**完了日時**")
+                    e_dt = safe_parse_dt(curr["完了日時"])
+                    ce1, ce2 = st.columns(2)
+                    e_ed = ce1.date_input("完了日", value=e_dt.date() if e_dt else datetime.date.today(), key="edit_ed")
+                    e_et = ce2.time_input("完了時", value=e_dt.time() if (e_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), key="edit_et")
+                    e_mode = st.radio("完了保存", ["日付+時刻", "日付のみ", "空欄"], index=0 if e_dt else 2, horizontal=True, key="emode")
+
+                e_content = st.text_area("対応内容", value=curr["対応内容"])
+                e_memo = st.text_area("メモ", value=curr["メモ"])
+                do_notify = st.checkbox("チャットに通知する")
+
+                if st.form_submit_button("💾 保存"):
                     fs = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M") if s_mode == "日付+時刻" else (e_sd.strftime("%Y/%m/%d") if s_mode == "日付のみ" else "")
                     fe = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M") if e_mode == "日付+時刻" else (e_ed.strftime("%Y/%m/%d") if e_mode == "日付のみ" else "")
                     
