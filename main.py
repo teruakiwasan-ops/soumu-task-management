@@ -24,7 +24,7 @@ def get_ss_connection():
 sh = get_ss_connection()
 ws_main = sh.get_worksheet(0)
 
-# --- Google Chat Webhook URL (復活) ---
+# --- Google Chat Webhook URL ---
 CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAAAD-bZDK4/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=gK0I12cncnoO_AzBlSfLtoOrIH1v-mKINo1Iah0OTbw"
 
 def send_chat_notification(text):
@@ -85,22 +85,29 @@ with tab_input:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
                 new_row = [now_jst.strftime("%Y/%m/%d"), i_job, "受付", i_title, i_content, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
                 ws_main.append_row(new_row)
-                
-                # チャット通知
-                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n担当: {i_staff}\n場所: {i_loc}")
-                
-                st.success("登録完了！通知を送信しました。")
+                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n担当: {i_staff}")
+                st.success("登録完了！")
                 st.rerun()
 
 # --- 【タブ3】一覧・検索・編集 ---
 with tab_search:
     st.subheader("🔍 タスク一覧・検索")
+    
+    # --- 虫眼鏡ボタン付き検索欄 ---
+    c_srch1, c_srch2 = st.columns([8, 1])
+    search_kw = c_srch1.text_input("検索ワードを入力", key="srch_val", label_visibility="collapsed")
+    btn_search = c_srch2.button("🔍 検索")
+
     all_data_edit = ws_main.get_all_records()
     df_raw = pd.DataFrame(all_data_edit)
     
     if not df_raw.empty:
-        search_kw = st.text_input("キーワード検索")
-        df_filtered = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains(search_kw).any(), axis=1)].copy() if search_kw else df_raw.copy()
+        # 検索処理
+        if search_kw:
+            df_filtered = df_raw[df_raw.apply(lambda row: row.astype(str).str.contains(search_kw).any(), axis=1)].copy()
+        else:
+            df_filtered = df_raw.copy()
+
         df_filtered["row_no"] = df_filtered.index + 2
         df_filtered.insert(0, "選択", False)
 
@@ -137,29 +144,32 @@ with tab_search:
 
                 st.markdown("##### ⏰ 日時設定")
                 def get_dt_obj(val):
-                    try: return datetime.datetime.strptime(val, "%Y/%m/%d %H:%M")
+                    try: return datetime.datetime.strptime(str(val), "%Y/%m/%d %H:%M")
                     except: 
-                        try: return datetime.datetime.strptime(val, "%Y/%m/%d")
+                        try: return datetime.datetime.strptime(str(val), "%Y/%m/%d")
                         except: return None
 
-                try: occ_d = datetime.datetime.strptime(curr["発生日"], "%Y/%m/%d").date()
+                # 発生日
+                try: occ_d = datetime.datetime.strptime(str(curr["発生日"]), "%Y/%m/%d").date()
                 except: occ_d = datetime.date.today()
                 e_occ_date = st.date_input("発生日", value=occ_d)
 
-                st.write("---")
-                start_dt = get_dt_obj(curr["対応開始日時"])
+                # --- レイアウトをピシッと整列させる工夫 ---
+                # 開始日時
                 st.write("**対応開始日時**")
-                cols_s = st.columns([2, 2, 3])
-                e_sd = cols_s[0].date_input("開始日付", value=start_dt.date() if start_dt else datetime.date.today(), key="esd", label_visibility="collapsed")
-                e_st = cols_s[1].time_input("開始時刻", value=start_dt.time() if (start_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), key="est", label_visibility="collapsed")
-                s_mode = cols_s[2].radio("保存形式", ["日付+時刻", "日付のみ", "空欄"], key="sm", horizontal=True, label_visibility="collapsed")
+                start_dt = get_dt_obj(curr["対応開始日時"])
+                cs_1, cs_2, cs_3 = st.columns([1, 1, 1])
+                e_sd = cs_1.date_input("開始日", value=start_dt.date() if start_dt else datetime.date.today(), key="esd_v")
+                e_st = cs_2.time_input("開始時", value=start_dt.time() if (start_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), key="est_v")
+                s_mode = cs_3.radio("開始保存形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if start_dt else 2, key="sm_v", horizontal=True)
 
+                # 完了日時
                 st.write("**完了日時**")
                 end_dt = get_dt_obj(curr["完了日時"])
-                cols_e = st.columns([2, 2, 3])
-                e_ed = cols_e[0].date_input("完了日付", value=end_dt.date() if end_dt else datetime.date.today(), key="eed", label_visibility="collapsed")
-                e_et = cols_e[1].time_input("完了時刻", value=end_dt.time() if (end_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), key="eet", label_visibility="collapsed")
-                e_mode = cols_e[2].radio("保存形式", ["日付+時刻", "日付のみ", "空欄"], index=2 if not end_dt else 0, key="em", horizontal=True, label_visibility="collapsed")
+                ce_1, ce_2, ce_3 = st.columns([1, 1, 1])
+                e_ed = ce_1.date_input("完了日", value=end_dt.date() if end_dt else datetime.date.today(), key="eed_v")
+                e_et = ce_2.time_input("完了時", value=end_dt.time() if (end_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), key="eet_v")
+                e_mode = ce_3.radio("完了保存形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if end_dt else 2, key="em_v", horizontal=True)
 
                 st.write("---")
                 e_content = st.text_area("対応内容", value=curr["対応内容"], height=150)
@@ -168,23 +178,12 @@ with tab_search:
                 do_notify = st.checkbox("更新をチャットに通知する")
 
                 if st.form_submit_button("💾 変更をすべて保存"):
-                    # 開始日時
-                    if s_mode == "日付+時刻": final_start = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M")
-                    elif s_mode == "日付のみ": final_start = e_sd.strftime("%Y/%m/%d")
-                    else: final_start = ""
-
-                    # 完了日時
-                    if e_mode == "日付+時刻": final_end = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M")
-                    elif e_mode == "日付のみ": final_end = e_ed.strftime("%Y/%m/%d")
-                    else: final_end = ""
+                    # 文字列化ロジック
+                    fs = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M") if s_mode == "日付+時刻" else (e_sd.strftime("%Y/%m/%d") if s_mode == "日付のみ" else "")
+                    fe = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M") if e_mode == "日付+時刻" else (e_ed.strftime("%Y/%m/%d") if e_mode == "日付のみ" else "")
                     
-                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, final_start, final_end, e_memo]
+                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, fs, fe, e_memo]
                     ws_main.update(range_name=f"A{row_idx}:L{row_idx}", values=[updated])
-                    
-                    if do_notify:
-                        send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}\n担当: {e_staff}")
-                        
-                    st.success("更新しました！")
+                    if do_notify: send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}")
+                    st.success("更新完了！")
                     st.rerun()
-        else:
-            st.warning("編集したいタスクを上の表から選択してください。")
