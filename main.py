@@ -1,3 +1,4 @@
+import json  # これを追加
 import streamlit as st
 import gspread
 import pandas as pd
@@ -10,11 +11,15 @@ st.set_page_config(page_title="総務部タスク管理システム", layout="wi
 # --- 認証とスプレッドシートの取得 ---
 @st.cache_resource
 def get_ss_connection():
+    # StreamlitのSecretsから設定を読み込む（ファイルを使わない方法）
+    service_account_info = json.loads(st.secrets["gcp_service_account"])
+    authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
+    
     gc = gspread.oauth(
-        credentials_filename='client_secret.json',
-        authorized_user_filename='authorized_user.json'
+        credentials_info=service_account_info,
+        authorized_user_info=authorized_user_info
     )
-    # ★スプレッドシートのURLを貼り付け
+    # ★あなたのスプレッドシートURLをここに貼り付け
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
@@ -174,4 +179,5 @@ with tab_search:
         else:
             st.warning("⚠️ 編集したいタスクを上の表から1つ選んでください。")
     else:
+
         st.info("データがありません。")
