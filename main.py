@@ -2,7 +2,7 @@ import streamlit as st
 import gspread
 import pandas as pd
 import datetime
-from datetime import timezone, timedelta # 追加
+from datetime import timezone, timedelta
 import requests
 import json
 from google.oauth2.credentials import Credentials
@@ -34,6 +34,7 @@ def get_staff_list():
         return ["担当者不明"]
 
 staff_list = get_staff_list()
+status_options = ["受付", "対応中", "保留中", "完了"]
 job_options = ["修繕", "管理", "その他"]
 
 st.title("🏢 総務部 業務管理システム")
@@ -45,7 +46,6 @@ with tab_today:
     all_data = ws_main.get_all_records()
     df_all = pd.DataFrame(all_data)
     if not df_all.empty:
-        # 発生日を日本時間で判定
         today_str = datetime.datetime.now(JST).strftime("%Y/%m/%d")
         df_today = df_all[(df_all["発生日"] == today_str) & (df_all["ステータス"] != "完了")]
         st.dataframe(df_today, use_container_width=True)
@@ -66,7 +66,6 @@ with tab_input:
             with sub_c2: i_req = st.text_input("依頼者")
         with c2:
             i_staff = st.selectbox("担当者", staff_list, key="i_staff")
-            # --- ここを日本時間に修正 ---
             now_jst = datetime.datetime.now(JST)
             i_date = st.date_input("対応開始日", value=now_jst.date())
             i_time = st.time_input("対応開始時間", value=now_jst.time())
@@ -78,14 +77,8 @@ with tab_input:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
                 new_row = [now_jst.strftime("%Y/%m/%d"), i_job, "受付", i_title, i_content, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
                 ws_main.append_row(new_row)
-                if "http" in CHAT_WEBHOOK_URL:
-                    msg = {"text": f"📢 **【新規タスク登録】**\n--------------------------------\n🔹**案件名**: {i_title}\n🔹**担当者**: {i_staff}\n--------------------------------"}
-                    try: requests.post(CHAT_WEBHOOK_URL, json=msg)
-                    except: pass
                 st.success("登録完了！")
                 st.rerun()
-            else:
-                st.error("案件名は必須です。")
 
 # --- 【タブ3】一覧・検索・編集 ---
 with tab_search:
@@ -119,24 +112,30 @@ with tab_search:
                 st.subheader(f"📝 編集: {curr['案件名']}")
                 e1, e2 = st.columns(2)
                 with e1:
+                    e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
                     e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
                     e_title = st.text_input("案件名", value=curr["案件名"])
                     e_loc = st.text_input("場所", value=curr["場所"])
+                    e_start_dt = st.text_input("対応開始日時", value=curr["対応開始日時"])
                 with e2:
                     e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
                     e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
                     e_req = st.text_input("依頼者", value=curr["依頼者"])
+                    e_occ_date = st.text_input("発生日", value=curr["発生日"])
+                    e_end_dt = st.text_input("完了日時", value=curr["完了日時"])
                 
-                e_content = st.text_area("対応内容", value=curr["対応内容"])
-                set_now = st.checkbox("完了にする（現在時刻をセット）")
+                e_content = st.text_area("対応内容", value=curr["対応内容"], height=200)
+                e_memo = st.text_area("メモ", value=curr["メモ"], height=100)
+                set_now = st.checkbox("今すぐ完了にする（完了日時に現在時刻を入力）")
                 
-                if st.form_submit_button("💾 更新を保存"):
-                    new_status = "完了" if set_now else curr["ステータス"]
-                    # --- 完了時も日本時間をセット ---
-                    final_end = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M") if set_now else curr["完了日時"]
-                    updated = [curr["発生日"], e_type, new_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, curr["対応開始日時"], final_end, curr["メモ"]]
+                if st.form_submit_button("💾 変更をすべて保存"):
+                    final_status = "完了" if set_now else e_status
+                    final_end = datetime.datetime.now(JST).strftime("%Y/%m/%d %H:%M") if set_now else e_end_dt
+                    
+                    # スプレッドシートの列順(A~L)に合わせてリストを作成
+                    updated = [e_occ_date, e_type, final_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, e_start_dt, final_end, e_memo]
                     ws_main.update(range_name=f"A{row_idx}:L{row_idx}", values=[updated])
-                    st.success("更新しました！")
+                    st.success("スプレッドシートを更新しました！")
                     st.rerun()
         else:
             st.warning("編集したいタスクを上の表から選択してください。")
