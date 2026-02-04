@@ -57,6 +57,7 @@ with tab_today:
     df_all = pd.DataFrame(all_data)
     if not df_all.empty:
         today_str = datetime.datetime.now(JST).strftime("%Y/%m/%d")
+        # 「発生日」列がある前提
         df_today = df_all[(df_all["発生日"] == today_str) & (df_all["ステータス"] != "完了")]
         st.dataframe(df_today, use_container_width=True)
     else:
@@ -81,13 +82,21 @@ with tab_input:
             i_date = ic1.date_input("開始日", value=now_jst.date())
             i_time = ic2.time_input("開始時間", value=now_jst.time())
         
-        i_content = st.text_area("対応内容", height=150)
+        # 項目変更と追加
+        i_content = st.text_area("内容", height=100)
+        i_cause = st.text_area("原因", height=100)
+        i_action = st.text_area("対処", height=100)
         i_memo = st.text_area("メモ", height=100)
         
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                new_row = [now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, i_content, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
+                # シートの列順序に合わせてリストを作成
+                new_row = [
+                    now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
+                    i_content, i_cause, i_action, # ここを追加
+                    i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo
+                ]
                 ws_main.append_row(new_row)
                 send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n状態: {i_status}\n担当: {i_staff}")
                 st.success("登録完了！")
@@ -97,7 +106,7 @@ with tab_input:
 with tab_search:
     st.subheader("🔍 タスク一覧・検索")
     c_srch1, c_srch2 = st.columns([8, 1])
-    search_kw = c_srch1.text_input("検索", label_visibility="collapsed")
+    search_kw = c_srch1.text_input("検索ワード", label_visibility="collapsed")
     btn_search = c_srch2.button("🔍 検索")
 
     all_data_edit = ws_main.get_all_records()
@@ -123,18 +132,15 @@ with tab_search:
             row_idx = df_filtered.loc[target_idx, "row_no"]
             curr = df_filtered.loc[target_idx]
 
-            # --- 編集・削除エリア ---
             st.divider()
             
-            # 削除ボタン用のレイアウト
             del_c1, del_c2 = st.columns([6, 1])
             with del_c2:
-                # 誤削除防止のための2段階確認
                 confirm_delete = st.checkbox("この案件を削除する")
                 if st.button("🚨 完全に削除", disabled=not confirm_delete):
                     ws_main.delete_rows(int(row_idx))
-                    send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}\n担当: {curr['担当者']}")
-                    st.warning(f"案件「{curr['案件名']}」を削除しました。")
+                    send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}")
+                    st.warning("削除しました。")
                     st.rerun()
 
             with st.form("edit_form"):
@@ -183,16 +189,26 @@ with tab_search:
                     e_et = ce2.time_input("完了時", value=e_dt.time() if (e_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), key="edit_et")
                     e_mode = st.radio("完了保存", ["日付+時刻", "日付のみ", "空欄"], index=0 if e_dt else 2, horizontal=True, key="emode")
 
-                e_content = st.text_area("対応内容", value=curr["対応内容"])
-                e_memo = st.text_area("メモ", value=curr["メモ"])
+                # 編集画面でも「内容」「原因」「対処」を表示
+                e_content = st.text_area("内容", value=curr.get("内容", ""))
+                e_cause = st.text_area("原因", value=curr.get("原因", ""))
+                e_action = st.text_area("対処", value=curr.get("対処", ""))
+                e_memo = st.text_area("メモ", value=curr.get("メモ", ""))
+                
                 do_notify = st.checkbox("チャットに通知する")
 
                 if st.form_submit_button("💾 保存"):
                     fs = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M") if s_mode == "日付+時刻" else (e_sd.strftime("%Y/%m/%d") if s_mode == "日付のみ" else "")
                     fe = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M") if e_mode == "日付+時刻" else (e_ed.strftime("%Y/%m/%d") if e_mode == "日付のみ" else "")
                     
-                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, e_content, e_loc, e_dept, e_req, e_staff, fs, fe, e_memo]
-                    ws_main.update(range_name=f"A{row_idx}:L{row_idx}", values=[updated])
+                    # 更新データリスト（列順に注意）
+                    updated = [
+                        e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, 
+                        e_content, e_cause, e_action, 
+                        e_loc, e_dept, e_req, e_staff, fs, fe, e_memo
+                    ]
+                    # 列数がA~N列(14列)になるため範囲を調整
+                    ws_main.update(range_name=f"A{row_idx}:N{row_idx}", values=[updated])
                     if do_notify: send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}")
                     st.success("更新完了！")
                     st.rerun()
