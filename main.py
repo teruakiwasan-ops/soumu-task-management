@@ -13,11 +13,13 @@ JST = timezone(timedelta(hours=+9))
 # ページの設定
 st.set_page_config(page_title="総務部タスク管理システム", layout="wide")
 
+# --- 認証とスプレッドシートの取得 ---
 @st.cache_resource
 def get_ss_connection():
     authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
     creds = Credentials.from_authorized_user_info(authorized_user_info)
     gc = gspread.authorize(creds)
+    # ★スプレッドシートのURL（お客様のURL）
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
@@ -50,15 +52,21 @@ job_options = ["修繕", "管理", "その他"]
 st.title("🏢 総務部 業務管理システム")
 tab_today, tab_input, tab_search = st.tabs(["📅 本日のタスク", "📝 新規登録", "🔍 一覧・検索・編集"])
 
-# --- 【タブ1】本日のタスク ---
+# --- 【タブ1】本日のタスク (未完了全表示ロジック) ---
 with tab_today:
-    st.subheader("🚩 本日の未完了タスク")
+    st.subheader("🚩 現在対応中のタスク一覧")
     all_data = ws_main.get_all_records()
     df_all = pd.DataFrame(all_data)
+    
     if not df_all.empty:
-        today_str = datetime.datetime.now(JST).strftime("%Y/%m/%d")
-        df_today = df_all[(df_all["発生日"] == today_str) & (df_all["ステータス"] != "完了")]
-        st.dataframe(df_today, use_container_width=True)
+        # ステータスが「完了」以外のものをすべて表示
+        df_todo = df_all[df_all["ステータス"] != "完了"].copy()
+        
+        if not df_todo.empty:
+            df_todo = df_todo.sort_values("発生日", ascending=False)
+            st.dataframe(df_todo, use_container_width=True)
+        else:
+            st.info("現在、未完了のタスクはありません。")
     else:
         st.info("データがありません。")
 
@@ -89,11 +97,18 @@ with tab_input:
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                new_row = [now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, i_content, i_cause, i_action, i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo]
+                # A~N列(14列)の構成
+                new_row = [
+                    now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
+                    i_content, i_cause, i_action, 
+                    i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo
+                ]
                 ws_main.append_row(new_row)
                 send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n状態: {i_status}\n担当: {i_staff}")
                 st.success("登録完了！")
                 st.rerun()
+            else:
+                st.error("案件名は必須です。")
 
 # --- 【タブ3】一覧・検索・編集 ---
 with tab_search:
@@ -127,35 +142,35 @@ with tab_search:
 
             st.divider()
             
-            # 削除ボタン
+            # --- 削除セクション ---
             del_c1, del_c2 = st.columns([6, 1])
             with del_c2:
-                confirm_delete = st.checkbox("この案件を削除する")
+                confirm_delete = st.checkbox("削除を有効化")
                 if st.button("🚨 完全に削除", disabled=not confirm_delete):
                     ws_main.delete_rows(int(row_idx))
                     send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}")
-                    st.warning("削除しました。")
+                    st.warning("データを削除しました。")
                     st.rerun()
 
+            # --- 編集セクション ---
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
                 
-                c1, c2, c3 = st.columns(3)
-                with c1: e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
-                with c2: e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
-                with c3: e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
+                ec1, ec2, ec3 = st.columns(3)
+                with ec1: e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
+                with ec2: e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
+                with ec3: e_staff = st.selectbox("担当者", staff_list, index=staff_list.index(curr["担当者"]) if curr["担当者"] in staff_list else 0)
                 
                 e_title = st.text_input("案件名", value=curr["案件名"])
                 
-                c4, c5, c6 = st.columns(3)
-                with c4: e_loc = st.text_input("場所", value=curr["場所"])
-                with c5: e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
-                with c6: e_req = st.text_input("依頼者", value=curr["依頼者"])
+                ec4, ec5, ec6 = st.columns(3)
+                with ec4: e_loc = st.text_input("場所", value=curr["場所"])
+                with ec5: e_dept = st.text_input("依頼部署", value=curr["依頼部署"])
+                with ec6: e_req = st.text_input("依頼者", value=curr["依頼者"])
 
                 st.write("---")
                 st.markdown("##### ⏰ 日時設定")
                 
-                # パース関数
                 def safe_parse_dt(val):
                     if not val or pd.isna(val): return None
                     for fmt in ("%Y/%m/%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
@@ -167,21 +182,21 @@ with tab_search:
                 occ_dt = safe_parse_dt(curr["発生日"])
                 e_occ_date = st.date_input("発生日", value=occ_dt.date() if occ_dt else datetime.date.today())
 
-                # --- 対応開始日時 ---
+                # 開始日時
                 st.write("**対応開始日時**")
                 s_dt = safe_parse_dt(curr["対応開始日時"])
-                cs1, cs2, cs3 = st.columns([2, 2, 3]) # 比率を固定
-                e_sd = cs1.date_input("開始日", value=s_dt.date() if s_dt else datetime.date.today(), label_visibility="collapsed")
-                e_st = cs2.time_input("開始時", value=s_dt.time() if (s_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), label_visibility="collapsed")
-                s_mode = cs3.radio("開始形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if s_dt else 2, horizontal=True, label_visibility="collapsed", key="smode")
+                cs1, cs2, cs3 = st.columns([2, 2, 3])
+                e_sd = cs1.date_input("開始日", value=s_dt.date() if s_dt else datetime.date.today(), label_visibility="collapsed", key="esd")
+                e_st = cs2.time_input("開始時", value=s_dt.time() if (s_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), label_visibility="collapsed", key="est")
+                s_mode = cs3.radio("開始形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if (s_dt and ":" in str(curr["対応開始日時"])) else (1 if s_dt else 2), horizontal=True, label_visibility="collapsed", key="smode")
 
-                # --- 完了日時 ---
+                # 完了日時
                 st.write("**完了日時**")
                 e_dt = safe_parse_dt(curr["完了日時"])
-                ce1, ce2, ce3 = st.columns([2, 2, 3]) # 比率を固定
-                e_ed = ce1.date_input("完了日", value=e_dt.date() if e_dt else datetime.date.today(), label_visibility="collapsed")
-                e_et = ce2.time_input("完了時", value=e_dt.time() if (e_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), label_visibility="collapsed")
-                e_mode = ce3.radio("完了形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if e_dt else 2, horizontal=True, label_visibility="collapsed", key="emode")
+                ce1, ce2, ce3 = st.columns([2, 2, 3])
+                e_ed = ce1.date_input("完了日", value=e_dt.date() if e_dt else datetime.date.today(), label_visibility="collapsed", key="eed")
+                e_et = ce2.time_input("完了時", value=e_dt.time() if (e_dt and ":" in str(curr["完了日時"])) else datetime.time(17, 0), label_visibility="collapsed", key="eet")
+                e_mode = ce3.radio("完了形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if (e_dt and ":" in str(curr["完了日時"])) else (1 if e_dt else 2), horizontal=True, label_visibility="collapsed", key="emode")
 
                 st.write("---")
                 e_content = st.text_area("内容", value=curr.get("内容", ""))
@@ -189,14 +204,23 @@ with tab_search:
                 e_action = st.text_area("対処", value=curr.get("対処", ""))
                 e_memo = st.text_area("メモ", value=curr.get("メモ", ""))
                 
-                do_notify = st.checkbox("チャットに通知する")
+                do_notify = st.checkbox("チャットに通知する", value=False)
 
                 if st.form_submit_button("💾 保存"):
                     fs = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M") if s_mode == "日付+時刻" else (e_sd.strftime("%Y/%m/%d") if s_mode == "日付のみ" else "")
                     fe = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M") if e_mode == "日付+時刻" else (e_ed.strftime("%Y/%m/%d") if e_mode == "日付のみ" else "")
                     
-                    updated = [e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, e_content, e_cause, e_action, e_loc, e_dept, e_req, e_staff, fs, fe, e_memo]
-                    ws_main.update(range_name=f"A{row_idx}:N{row_idx}", values=[updated])
-                    if do_notify: send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}")
-                    st.success("更新完了！")
+                    updated_data = [
+                        e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, 
+                        e_content, e_cause, e_action, 
+                        e_loc, e_dept, e_req, e_staff, fs, fe, e_memo
+                    ]
+                    ws_main.update(range_name=f"A{row_idx}:N{row_idx}", values=[updated_data])
+                    
+                    if do_notify:
+                        send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}")
+                    
+                    st.success("スプレッドシートを更新しました！")
                     st.rerun()
+        else:
+            st.warning("編集したい案件を上の表から選択してください。")
