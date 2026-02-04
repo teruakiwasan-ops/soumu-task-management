@@ -19,7 +19,7 @@ def get_ss_connection():
     authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
     creds = Credentials.from_authorized_user_info(authorized_user_info)
     gc = gspread.authorize(creds)
-    # ★スプレッドシートのURL（お客様のURL）
+    # ★スプレッドシートのURL
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
@@ -52,16 +52,14 @@ job_options = ["修繕", "管理", "その他"]
 st.title("🏢 総務部 業務管理システム")
 tab_today, tab_input, tab_search = st.tabs(["📅 本日のタスク", "📝 新規登録", "🔍 一覧・検索・編集"])
 
-# --- 【タブ1】本日のタスク (未完了全表示ロジック) ---
+# --- 【タブ1】本日のタスク (未完了全表示) ---
 with tab_today:
     st.subheader("🚩 現在対応中のタスク一覧")
     all_data = ws_main.get_all_records()
     df_all = pd.DataFrame(all_data)
     
     if not df_all.empty:
-        # ステータスが「完了」以外のものをすべて表示
         df_todo = df_all[df_all["ステータス"] != "完了"].copy()
-        
         if not df_todo.empty:
             df_todo = df_todo.sort_values("発生日", ascending=False)
             st.dataframe(df_todo, use_container_width=True)
@@ -97,7 +95,6 @@ with tab_input:
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                # A~N列(14列)の構成
                 new_row = [
                     now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
                     i_content, i_cause, i_action, 
@@ -148,14 +145,14 @@ with tab_search:
                 confirm_delete = st.checkbox("削除を有効化")
                 if st.button("🚨 完全に削除", disabled=not confirm_delete):
                     ws_main.delete_rows(int(row_idx))
-                    send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}")
+                    # ↓ここをコメントアウトしてチャット通知を止めました
+                    # send_chat_notification(f"🗑️ **【タスク削除】**\n案件: {curr['案件名']}")
                     st.warning("データを削除しました。")
                     st.rerun()
 
             # --- 編集セクション ---
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
-                
                 ec1, ec2, ec3 = st.columns(3)
                 with ec1: e_status = st.selectbox("ステータス", status_options, index=status_options.index(curr["ステータス"]) if curr["ステータス"] in status_options else 0)
                 with ec2: e_type = st.selectbox("業務種別", job_options, index=job_options.index(curr["業務種別"]) if curr["業務種別"] in job_options else 0)
@@ -178,11 +175,9 @@ with tab_search:
                         except: continue
                     return None
 
-                # 発生日
                 occ_dt = safe_parse_dt(curr["発生日"])
                 e_occ_date = st.date_input("発生日", value=occ_dt.date() if occ_dt else datetime.date.today())
 
-                # 開始日時
                 st.write("**対応開始日時**")
                 s_dt = safe_parse_dt(curr["対応開始日時"])
                 cs1, cs2, cs3 = st.columns([2, 2, 3])
@@ -190,7 +185,6 @@ with tab_search:
                 e_st = cs2.time_input("開始時", value=s_dt.time() if (s_dt and ":" in str(curr["対応開始日時"])) else datetime.time(9, 0), label_visibility="collapsed", key="est")
                 s_mode = cs3.radio("開始形式", ["日付+時刻", "日付のみ", "空欄"], index=0 if (s_dt and ":" in str(curr["対応開始日時"])) else (1 if s_dt else 2), horizontal=True, label_visibility="collapsed", key="smode")
 
-                # 完了日時
                 st.write("**完了日時**")
                 e_dt = safe_parse_dt(curr["完了日時"])
                 ce1, ce2, ce3 = st.columns([2, 2, 3])
@@ -216,10 +210,8 @@ with tab_search:
                         e_loc, e_dept, e_req, e_staff, fs, fe, e_memo
                     ]
                     ws_main.update(range_name=f"A{row_idx}:N{row_idx}", values=[updated_data])
-                    
                     if do_notify:
                         send_chat_notification(f"📝 **【タスク更新】**\n案件: {e_title}\n状態: {e_status}")
-                    
                     st.success("スプレッドシートを更新しました！")
                     st.rerun()
         else:
