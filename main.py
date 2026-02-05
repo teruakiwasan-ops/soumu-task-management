@@ -5,7 +5,6 @@ import datetime
 from datetime import timezone, timedelta
 import requests
 import json
-import re # URL解析用
 from google.oauth2.credentials import Credentials
 
 # 日本時間(JST)の定義
@@ -39,18 +38,6 @@ def send_chat_notification(text):
         except:
             pass
 
-# --- GoogleドライブのURLを直リンクに変換する関数 ---
-def convert_drive_url(url):
-    if not url or not isinstance(url, str):
-        return None
-    if "drive.google.com" in url:
-        # ID抽出の正規表現を強化
-        match = re.search(r'/d/([^/?]+)', url)
-        if match:
-            file_id = match.group(1)
-            return f"https://drive.google.com/uc?id={file_id}"
-    return url
-
 def get_staff_list():
     try:
         ws_staff = sh.worksheet("担当者マスタ")
@@ -65,7 +52,7 @@ job_options = ["修繕", "管理", "その他"]
 st.title("🏢 総務部 業務管理システム")
 tab_today, tab_input, tab_search = st.tabs(["📅 本日のタスク", "📝 新規登録", "🔍 一覧・検索・編集"])
 
-# --- 【タブ1】本日のタスク (未完了全表示) ---
+# --- 【タブ1】本日のタスク ---
 with tab_today:
     st.subheader("🚩 現在対応中のタスク一覧")
     all_data = ws_main.get_all_records()
@@ -103,20 +90,20 @@ with tab_input:
         i_content = st.text_area("内容", height=100)
         i_cause = st.text_area("原因", height=100)
         i_action = st.text_area("対処", height=100)
-        i_photo = st.text_input("写真URL (Googleドライブ共有リンク)")
+        i_photo = st.text_input("写真URL (Googleドライブのリンク)")
         i_memo = st.text_area("メモ", height=100)
         
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                # A~O列(15列)の構成
+                # A列〜O列（15項目）
                 new_row = [
                     now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
                     i_content, i_cause, i_action, 
                     i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo, i_photo
                 ]
                 ws_main.append_row(new_row)
-                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n状態: {i_status}\n担当: {i_staff}")
+                send_chat_notification(f"📢 **【新規登録】**\n案件: {i_title}\n担当: {i_staff}")
                 st.success("登録完了！")
                 st.rerun()
 
@@ -152,16 +139,15 @@ with tab_search:
 
             st.divider()
             
-            # 削除セクション (通知なし)
+            # 削除ボタン
             del_c1, del_c2 = st.columns([6, 1])
             with del_c2:
                 confirm_delete = st.checkbox("削除有効化")
                 if st.button("🚨 完全に削除", disabled=not confirm_delete):
                     ws_main.delete_rows(int(row_idx))
-                    st.warning("データを削除しました。")
+                    st.warning("削除しました。")
                     st.rerun()
 
-            # 編集フォーム
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
                 ec1, ec2, ec3 = st.columns(3)
@@ -208,14 +194,11 @@ with tab_search:
                 e_cause = st.text_area("原因", value=curr.get("原因", ""))
                 e_action = st.text_area("対処", value=curr.get("対処", ""))
                 
-                # 写真URLとプレビュー
-                e_photo = st.text_input("写真URL (Googleドライブ共有リンク)", value=curr.get("写真URL", ""))
+                # --- 写真URLセクション（セキュリティ対応版） ---
+                e_photo = st.text_input("写真URL (Googleドライブのリンク)", value=curr.get("写真URL", ""))
                 if e_photo:
-                    img_url = convert_drive_url(e_photo)
-                    if img_url:
-                        st.image(img_url, caption="現場写真", use_container_width=True)
-                    else:
-                        st.caption("URLが正しくありません")
+                    st.link_button("🖼 現場写真を表示（別タブで開く）", e_photo)
+                    st.caption("※組織の閲覧権限がある方のみ確認できます。")
                 
                 e_memo = st.text_area("メモ", value=curr.get("メモ", ""))
                 do_notify = st.checkbox("通知する", value=False)
@@ -230,7 +213,6 @@ with tab_search:
                         e_loc, e_dept, e_req, e_staff, fs, fe, e_memo, e_photo
                     ]
                     ws_main.update(range_name=f"A{row_idx}:O{row_idx}", values=[updated_row])
-                    if do_notify:
-                        send_chat_notification(f"📝 **更新**: {e_title}")
+                    if do_notify: send_chat_notification(f"📝 **更新**: {e_title}")
                     st.success("更新しました！")
                     st.rerun()
