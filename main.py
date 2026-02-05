@@ -5,7 +5,7 @@ import datetime
 from datetime import timezone, timedelta
 import requests
 import json
-import re # URL変換用に追加
+import re # URL解析用
 from google.oauth2.credentials import Credentials
 
 # 日本時間(JST)の定義
@@ -14,11 +14,13 @@ JST = timezone(timedelta(hours=+9))
 # ページの設定
 st.set_page_config(page_title="総務部タスク管理システム", layout="wide")
 
+# --- 認証とスプレッドシートの取得 ---
 @st.cache_resource
 def get_ss_connection():
     authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
     creds = Credentials.from_authorized_user_info(authorized_user_info)
     gc = gspread.authorize(creds)
+    # ★スプレッドシートのURL
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
@@ -34,13 +36,16 @@ def send_chat_notification(text):
         full_text = f"{text}\n\n🔗 確認はコチラ：\n{APP_URL}"
         try:
             requests.post(CHAT_WEBHOOK_URL, json={"text": full_text})
-        except: pass
+        except:
+            pass
 
-# GoogleドライブのURLを直リンクに変換する関数
+# --- GoogleドライブのURLを直リンクに変換する関数 ---
 def convert_drive_url(url):
+    if not url or not isinstance(url, str):
+        return None
     if "drive.google.com" in url:
-        # ファイルIDを抽出
-        match = re.search(r'/d/([^/]+)', url)
+        # ID抽出の正規表現を強化
+        match = re.search(r'/d/([^/?]+)', url)
         if match:
             file_id = match.group(1)
             return f"https://drive.google.com/uc?id={file_id}"
@@ -50,7 +55,8 @@ def get_staff_list():
     try:
         ws_staff = sh.worksheet("担当者マスタ")
         return ws_staff.col_values(1)[1:]
-    except: return ["担当者不明"]
+    except:
+        return ["担当者不明"]
 
 staff_list = get_staff_list()
 status_options = ["受付", "対応中", "保留中", "完了"]
@@ -59,18 +65,21 @@ job_options = ["修繕", "管理", "その他"]
 st.title("🏢 総務部 業務管理システム")
 tab_today, tab_input, tab_search = st.tabs(["📅 本日のタスク", "📝 新規登録", "🔍 一覧・検索・編集"])
 
-# --- 【タブ1】本日のタスク ---
+# --- 【タブ1】本日のタスク (未完了全表示) ---
 with tab_today:
     st.subheader("🚩 現在対応中のタスク一覧")
     all_data = ws_main.get_all_records()
     df_all = pd.DataFrame(all_data)
+    
     if not df_all.empty:
         df_todo = df_all[df_all["ステータス"] != "完了"].copy()
         if not df_todo.empty:
             df_todo = df_todo.sort_values("発生日", ascending=False)
             st.dataframe(df_todo, use_container_width=True)
-        else: st.info("現在、未完了のタスクはありません。")
-    else: st.info("データがありません。")
+        else:
+            st.info("現在、未完了のタスクはありません。")
+    else:
+        st.info("データがありません。")
 
 # --- 【タブ2】新規登録 ---
 with tab_input:
@@ -94,20 +103,20 @@ with tab_input:
         i_content = st.text_area("内容", height=100)
         i_cause = st.text_area("原因", height=100)
         i_action = st.text_area("対処", height=100)
-        i_photo = st.text_input("写真URL (Googleドライブの共有リンク)")
+        i_photo = st.text_input("写真URL (Googleドライブ共有リンク)")
         i_memo = st.text_area("メモ", height=100)
         
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                # A~O列(15列)
+                # A~O列(15列)の構成
                 new_row = [
                     now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
                     i_content, i_cause, i_action, 
                     i_loc, i_dept, i_req, i_staff, dt_str, "", i_memo, i_photo
                 ]
                 ws_main.append_row(new_row)
-                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n担当: {i_staff}")
+                send_chat_notification(f"📢 **【新規タスク登録】**\n案件: {i_title}\n状態: {i_status}\n担当: {i_staff}")
                 st.success("登録完了！")
                 st.rerun()
 
@@ -143,15 +152,16 @@ with tab_search:
 
             st.divider()
             
-            # 削除セクション
+            # 削除セクション (通知なし)
             del_c1, del_c2 = st.columns([6, 1])
             with del_c2:
                 confirm_delete = st.checkbox("削除有効化")
                 if st.button("🚨 完全に削除", disabled=not confirm_delete):
                     ws_main.delete_rows(int(row_idx))
-                    st.warning("削除しました。")
+                    st.warning("データを削除しました。")
                     st.rerun()
 
+            # 編集フォーム
             with st.form("edit_form"):
                 st.markdown(f"### 📝 編集: {curr['案件名']}")
                 ec1, ec2, ec3 = st.columns(3)
@@ -198,14 +208,14 @@ with tab_search:
                 e_cause = st.text_area("原因", value=curr.get("原因", ""))
                 e_action = st.text_area("対処", value=curr.get("対処", ""))
                 
-                # 写真プレビュー
-                e_photo = st.text_input("写真URL (Googleドライブの共有リンク)", value=curr.get("写真URL", ""))
+                # 写真URLとプレビュー
+                e_photo = st.text_input("写真URL (Googleドライブ共有リンク)", value=curr.get("写真URL", ""))
                 if e_photo:
-                    try:
-                        img_url = convert_drive_url(e_photo)
-                        st.image(img_url, caption="現場写真", width=400)
-                    except:
-                        st.caption("画像の表示に失敗しました。URLと共有設定を確認してください。")
+                    img_url = convert_drive_url(e_photo)
+                    if img_url:
+                        st.image(img_url, caption="現場写真", use_container_width=True)
+                    else:
+                        st.caption("URLが正しくありません")
                 
                 e_memo = st.text_area("メモ", value=curr.get("メモ", ""))
                 do_notify = st.checkbox("通知する", value=False)
@@ -214,12 +224,13 @@ with tab_search:
                     fs = datetime.datetime.combine(e_sd, e_st).strftime("%Y/%m/%d %H:%M") if s_mode == "日付+時刻" else (e_sd.strftime("%Y/%m/%d") if s_mode == "日付のみ" else "")
                     fe = datetime.datetime.combine(e_ed, e_et).strftime("%Y/%m/%d %H:%M") if e_mode == "日付+時刻" else (e_ed.strftime("%Y/%m/%d") if e_mode == "日付のみ" else "")
                     
-                    updated_data = [
+                    updated_row = [
                         e_occ_date.strftime("%Y/%m/%d"), e_type, e_status, e_title, 
                         e_content, e_cause, e_action, 
                         e_loc, e_dept, e_req, e_staff, fs, fe, e_memo, e_photo
                     ]
-                    ws_main.update(range_name=f"A{row_idx}:O{row_idx}", values=[updated_data])
-                    if do_notify: send_chat_notification(f"📝 **更新**: {e_title}")
+                    ws_main.update(range_name=f"A{row_idx}:O{row_idx}", values=[updated_row])
+                    if do_notify:
+                        send_chat_notification(f"📝 **更新**: {e_title}")
                     st.success("更新しました！")
                     st.rerun()
