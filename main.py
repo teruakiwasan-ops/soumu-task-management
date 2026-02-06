@@ -19,7 +19,6 @@ def get_ss_connection():
     authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
     creds = Credentials.from_authorized_user_info(authorized_user_info)
     gc = gspread.authorize(creds)
-    # ★スプレッドシートのURL
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
@@ -35,19 +34,27 @@ def send_chat_notification(text):
         full_text = f"{text}\n\n🔗 確認はコチラ：\n{APP_URL}"
         try:
             requests.post(CHAT_WEBHOOK_URL, json={"text": full_text})
-        except:
-            pass
+        except: pass
 
 def get_staff_list():
     try:
         ws_staff = sh.worksheet("担当者マスタ")
         return ws_staff.col_values(1)[1:]
-    except:
-        return ["担当者不明"]
+    except: return ["担当者不明"]
 
 staff_list = get_staff_list()
 status_options = ["受付", "対応中", "保留中", "完了"]
 job_options = ["修繕", "管理", "その他"]
+
+# --- 表示用カラム設定 (共通) ---
+# 内容が長いカラムを広くし、折り返し表示を許可する設定
+COL_CONFIG = {
+    "内容": st.column_config.TextColumn("内容", width="large"),
+    "原因": st.column_config.TextColumn("原因", width="large"),
+    "対処": st.column_config.TextColumn("対処", width="large"),
+    "メモ": st.column_config.TextColumn("メモ", width="large"),
+    "写真URL": st.column_config.LinkColumn("写真URL", width="medium"),
+}
 
 st.title("🏢 総務部 業務管理システム")
 tab_today, tab_input, tab_search = st.tabs(["📅 本日のタスク", "📝 新規登録", "🔍 一覧・検索・編集"])
@@ -62,7 +69,8 @@ with tab_today:
         df_todo = df_all[df_all["ステータス"] != "完了"].copy()
         if not df_todo.empty:
             df_todo = df_todo.sort_values("発生日", ascending=False)
-            st.dataframe(df_todo, use_container_width=True)
+            # dataframeでもスクロールと幅調整を適用
+            st.dataframe(df_todo, use_container_width=True, column_config=COL_CONFIG, height=400)
         else:
             st.info("現在、未完了のタスクはありません。")
     else:
@@ -96,7 +104,6 @@ with tab_input:
         if st.form_submit_button("新規登録"):
             if i_title:
                 dt_str = datetime.datetime.combine(i_date, i_time).strftime("%Y/%m/%d %H:%M")
-                # A列〜O列（15項目）
                 new_row = [
                     now_jst.strftime("%Y/%m/%d"), i_job, i_status, i_title, 
                     i_content, i_cause, i_action, 
@@ -122,12 +129,19 @@ with tab_search:
         df_filtered["row_no"] = df_filtered.index + 2
         df_filtered.insert(0, "選択", False)
 
+        # 編集画面のテーブル設定
+        # 選択用チェックボックス以外は編集不可
+        EDIT_COL_CONFIG = COL_CONFIG.copy()
+        EDIT_COL_CONFIG["選択"] = st.column_config.CheckboxColumn("選択", default=False)
+
         edited_df = st.data_editor(
             df_filtered.drop(columns=["row_no"]),
             hide_index=True,
-            column_config={"選択": st.column_config.CheckboxColumn("選択", default=False)},
+            column_config=EDIT_COL_CONFIG,
             disabled=[col for col in df_filtered.columns if col != "選択"],
-            key="data_editor", use_container_width=True
+            key="data_editor", 
+            use_container_width=True,
+            height=500 # 表の高さを固定して内部スクロールを有効化
         )
 
         selected_indices = edited_df.index[edited_df["選択"] == True].tolist()
@@ -139,7 +153,6 @@ with tab_search:
 
             st.divider()
             
-            # 削除ボタン
             del_c1, del_c2 = st.columns([6, 1])
             with del_c2:
                 confirm_delete = st.checkbox("削除有効化")
@@ -194,11 +207,9 @@ with tab_search:
                 e_cause = st.text_area("原因", value=curr.get("原因", ""))
                 e_action = st.text_area("対処", value=curr.get("対処", ""))
                 
-                # --- 写真URLセクション（セキュリティ対応版） ---
                 e_photo = st.text_input("写真URL (Googleドライブのリンク)", value=curr.get("写真URL", ""))
                 if e_photo:
                     st.link_button("🖼 現場写真を表示（別タブで開く）", e_photo)
-                    st.caption("※組織の閲覧権限がある方のみ確認できます。")
                 
                 e_memo = st.text_area("メモ", value=curr.get("メモ", ""))
                 do_notify = st.checkbox("通知する", value=False)
