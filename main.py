@@ -19,14 +19,15 @@ def get_ss_connection():
     authorized_user_info = json.loads(st.secrets["gcp_authorized_user"])
     creds = Credentials.from_authorized_user_info(authorized_user_info)
     gc = gspread.authorize(creds)
+    # ★スプレッドシートのURL
     SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1bRXFLHiSsYVpofyXSf2UUcAsO_gM37aHsUv0CogmfPI/edit?gid=0#gid=0"
     return gc.open_by_url(SPREADSHEET_URL)
 
 sh = get_ss_connection()
 ws_main = sh.get_worksheet(0)
 
-# --- 通知設定 ---
-CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAAAD-bZDK4/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=gK0I12cncnoO_AzBlSfLtoOrIH1v-mKINo1Iah0OTbw"
+# --- 通知設定 (新しいURLに更新済み) ---
+CHAT_WEBHOOK_URL = "https://chat.googleapis.com/v1/spaces/AAQAjLROc5M/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=ePbMJg9ty_XhCBzDsF1M47VEmGHF24ZoJNG5QVGTV5M"
 APP_URL = "https://soumu-task-management-efzwxzn7qf9hqznyev64vu.streamlit.app/"
 
 def send_chat_notification(text):
@@ -47,7 +48,6 @@ status_options = ["受付", "対応中", "保留中", "完了"]
 job_options = ["修繕", "管理", "その他"]
 
 # --- 表示用カラム設定 (共通) ---
-# 内容が長いカラムを広くし、折り返し表示を許可する設定
 COL_CONFIG = {
     "内容": st.column_config.TextColumn("内容", width="large"),
     "原因": st.column_config.TextColumn("原因", width="large"),
@@ -69,7 +69,6 @@ with tab_today:
         df_todo = df_all[df_all["ステータス"] != "完了"].copy()
         if not df_todo.empty:
             df_todo = df_todo.sort_values("発生日", ascending=False)
-            # dataframeでもスクロールと幅調整を適用
             st.dataframe(df_todo, use_container_width=True, column_config=COL_CONFIG, height=400)
         else:
             st.info("現在、未完了のタスクはありません。")
@@ -129,8 +128,6 @@ with tab_search:
         df_filtered["row_no"] = df_filtered.index + 2
         df_filtered.insert(0, "選択", False)
 
-        # 編集画面のテーブル設定
-        # 選択用チェックボックス以外は編集不可
         EDIT_COL_CONFIG = COL_CONFIG.copy()
         EDIT_COL_CONFIG["選択"] = st.column_config.CheckboxColumn("選択", default=False)
 
@@ -141,7 +138,7 @@ with tab_search:
             disabled=[col for col in df_filtered.columns if col != "選択"],
             key="data_editor", 
             use_container_width=True,
-            height=500 # 表の高さを固定して内部スクロールを有効化
+            height=500 
         )
 
         selected_indices = edited_df.index[edited_df["選択"] == True].tolist()
